@@ -1153,6 +1153,7 @@ function buildKartAssets(){if(kartAssets.road)return;const road=[],scene=[];cons
  for(const f of kartPads){const a=kartAt(f*kartTrack.length);for(let j=0;j<4;j++)add(road,box(5,.04,.65,j%2?[.91,1,.48]:[.24,.70,.65]),a.x+a.dx*j,a.y+.16,a.z+a.dz*j,0,a.yaw);}
  for(const f of kartJumps){const a=kartAt(f*kartTrack.length-5);for(const side of[-1,1]){const x=a.x+a.dz*side*9,z=a.z-a.dx*side*9;add(scene,box(.25,5,.25,[.94,.62,.30]),x,a.y+2.5,z);add(scene,box(2,1.3,.2,[1,.51,.23]),x,a.y+4.6,z,0,a.yaw);}}
  for(let i=0;i<6;i++){const a=kartAt(i*kartTrack.length/6+20);for(const side of[-1,1])add(scene,box(.35,7,.35,[.17,.33,.38]),a.x+a.dz*side*8,a.y+3.5,a.z-a.dx*side*8,0,a.yaw);add(scene,box(16.5,.8,.35,[.88,.66,.38]),a.x,a.y+7,a.z,0,a.yaw);}
+ kartBuildFestival(scene,road,add);
  kartAssets.road=R.mesh(road);kartAssets.scene=R.mesh(scene);kartAssets.logo=meshWord('BRILLAMOS KART',.13,[.89,1,.62]);kartAssets.pitSign=meshWord('AQUI BRILLAMOS',.065,[.96,.89,.65]);kartAssets.arrow=R.mesh(extrude([[-.42,-.30],[0,.05],[-.42,.40],[-.12,.40],[.38,.05],[-.12,-.30]],.05,[.89,1,.62]));
  // Five colorways share a low-poly chassis, exposed engine, fat tires and a spoiler.
  const shell=[];add(shell,box(1.65,.36,2.5),0,.60,0);add(shell,box(1.34,.36,1.15),0,.77,1.05,.16);add(shell,box(.35,.44,1.3),-.82,.88,-.1);add(shell,box(.35,.44,1.3),.82,.88,-.1);add(shell,box(1.9,.14,.45),0,1.27,-1.2);kartAssets.shell=R.mesh(shell);
@@ -1197,7 +1198,7 @@ function fireKartPower(c=experience?.cars?.[0]){const e=experience;if(e?.id!=='k
  if(kind==='disc')e.traps.push({x:c.x-Math.sin(c.yaw)*2.3,z:c.z-Math.cos(c.yaw)*2.3,owner:c.index,life:17,age:0});
  if(kind==='wave'){e.waves.push({x:c.x,z:c.z,r:1,life:.7});for(const o of e.cars)if(o!==c&&Math.abs(o.y-c.y)<2&&Math.hypot(o.x-c.x,o.z-c.z)<17)hitKart(o,c.index);}
  if(c.index===0)kartMessage(kartPowerNames[kind]+' · ¡que pierdan el ritmo!',1.3);updateKartHUD();}
-function stepKartPowers(dt){const e=experience;for(const b of e.boxes){b.cool=Math.max(0,b.cool-dt);if(b.cool>0)continue;for(const c of e.cars){if(c.power||c.finishTime||Math.abs(c.y-b.y)>2||Math.hypot(c.x-b.x,c.z-b.z)>2.5)continue;c.power=['feedback','disc','wave'][Math.floor(Math.random()*3)];b.cool=5.5;if(c.index===0){expAudio.fx('ring');kartMessage(kartPowerNames[c.power]+' · '+(touchDevice?'toca PODER':'pulsa E para lanzar'),1.8);}break;}}
+function stepKartPowers(dt){const e=experience;for(const b of e.boxes){b.cool=Math.max(0,b.cool-dt);if(b.cool>0)continue;for(const c of e.cars){if(c.power||c.finishTime||Math.abs(c.y-b.y)>2||Math.hypot(c.x-b.x,c.z-b.z)>2.5)continue;c.power=kartChoosePower(c);b.cool=5.5;if(c.index===0){expAudio.fx('ring');kartMessage(kartPowerNames[c.power]+' · '+(touchDevice?'toca PODER':'pulsa E para lanzar'),1.8);}break;}}
  for(const s of e.shots){s.life-=dt;if(s.target!==null){const c=e.cars[s.target],dx=c.x-s.x,dz=c.z-s.z,len=Math.hypot(dx,dz)||1;s.vx=lerp(s.vx,dx/len*37,dt*4);s.vz=lerp(s.vz,dz/len*37,dt*4);}s.x+=s.vx*dt;s.z+=s.vz*dt;for(const c of e.cars)if(c.index!==s.owner&&Math.abs(c.y-kartElevation(nearestKart(s.x,s.z).s))<2&&Math.hypot(c.x-s.x,c.z-s.z)<1.65){hitKart(c,s.owner);s.life=0;break;}}
  for(const tr of e.traps){tr.life-=dt;tr.age+=dt;if(tr.age<.5)continue;for(const c of e.cars)if((c.index!==tr.owner||tr.age>2)&&Math.abs(c.y-kartElevation(nearestKart(tr.x,tr.z).s))<1.2&&Math.hypot(c.x-tr.x,c.z-tr.z)<1.8&&hitKart(c,tr.owner)){tr.life=0;break;}}
  e.shots=e.shots.filter(s=>s.life>0);e.traps=e.traps.filter(s=>s.life>0);for(const w of e.waves){w.r+=dt*24;w.life-=dt;}e.waves=e.waves.filter(w=>w.life>0);
@@ -1244,8 +1245,8 @@ window.addEventListener('keyup',e=>{if(activeMode!=='kart')return;kartInput.keys
 // Costa Brava: shared physics for the player and all opponents.
 const kartDifficulty = {
  chill: {name:'CHILL', pace:25, corner:7.5, reaction:1.05, aggression:.3},
- normal:{name:'NORMAL',pace:36, corner:14, reaction:1.8, aggression:.65},
- brutal:{name:'BRÍGIDO',pace:36, corner:20, reaction:2.1, aggression:1}
+ normal:{name:'NORMAL',pace:40, corner:17, reaction:1.9, aggression:.65},
+ brutal:{name:'BRÍGIDO',pace:42, corner:24, reaction:2.3, aggression:1}
 };
 kartOptions.difficulty='brutal';
 const kartSectors=['PASEO DEL PUERTO','ACANTILADOS','CURVAS DEL FARO','BOSQUE DEL ECO','HORQUILLA DEL RUIDO','RECTA DEL FESTIVAL'];
@@ -1264,6 +1265,8 @@ kartAt=function(s,offset=0){const p=originalKartAt(s,offset);p.y=kartElevation(s
 const originalMakeKart=makeKart;
 makeKart=function(character,index){const c=originalMakeKart(character,index);return Object.assign(c,{y:kartElevation(c.progress),vy:0,air:0,airTotal:0,jumps:0,draft:0,padCooldown:0,stuck:0,aiLane:(index%2?1:-1)*1.8,aiDecision:0,boosts:0,sector:-1});};
 function kartPowerUseful(c){
+ if(c.power==='nitro')return c.air===0&&Math.abs(wrap(kartAt(nearestKart(c.x,c.z).s+30).yaw-c.yaw))<.5;
+ if(c.power==='shield')return experience.shots?.some(s=>s.target===c.index)||experience.cars.some(o=>o!==c&&Math.hypot(o.x-c.x,o.z-c.z)<20);
  const rivals=experience.cars.filter(o=>o!==c&&!o.finishTime&&o.inv<=0&&Math.abs(o.y-c.y)<2);
  return rivals.some(o=>{const dx=o.x-c.x,dz=o.z-c.z,front=dx*Math.sin(c.yaw)+dz*Math.cos(c.yaw),d=Math.hypot(dx,dz);
   return c.power==='wave'?d<15:c.power==='disc'?front<-2&&front>-20&&d<23:front>2&&d<52;});
@@ -1275,7 +1278,7 @@ kartAI=function(c,dt){
   c.aiDecision=.25+(1-cfg.aggression)*.55;
   // Score three racing lanes, avoid slower traffic and seek available items.
   const traffic=e.cars.filter(o=>o!==c&&!o.finishTime).map(o=>({car:o,road:nearestKart(o.x,o.z)}));
-  const pickups=c.power?[]:e.boxes.filter(b=>b.cool<=0&&kartWrap(b.s-road.s)<35).map(b=>({s:b.s,side:b.side??(b.side=nearestKart(b.x,b.z).side)}));
+  const pickups=[...(c.power?[]:e.boxes),...((c.notes||0)<10?e.notes||[]:[])].filter(b=>b.cool<=0&&kartWrap(b.s-road.s)<35).map(b=>({s:b.s,side:b.side??(b.side=nearestKart(b.x,b.z).side)}));
   const lanes=[-3.2,0,3.2];let best=Infinity;
   for(const lane of lanes){let cost=Math.abs(lane-c.aiLane)*.12;
    for(const {car:other,road:n} of traffic){const ds=kartWrap(n.s-road.s);if(ds<25&&Math.abs(n.side-lane)<2.4)cost+=(25-ds)*(.5+Math.max(0,c.speed-other.speed)*.15);}
@@ -1285,9 +1288,10 @@ kartAI=function(c,dt){
  }
  const bend=wrap(kartAt(road.s+24).yaw-road.yaw);
  // Aim toward the inside of a bend, leaving room for traffic avoidance.
- const lane=clamp(c.aiLane*.5-Math.sign(bend)*Math.min(1.5,Math.abs(bend)*3),-3.5,3.5);
+ const safeLane=kartObstacleLane(c,road);
+ const lane=safeLane??clamp(c.aiLane*.5-Math.sign(bend)*Math.min(1.5,Math.abs(bend)*3),-3.5,3.5);
  const look=7+Math.abs(c.speed)*.32,ahead=kartAt(road.s+look,lane),diff=wrap(Math.atan2(ahead.x-c.x,ahead.z-c.z)-c.yaw);
- let target=c.boost>0?46:cfg.pace;
+ let target=c.boost>0?54:cfg.pace+(c.notes||0)*.25;
  // Brake at the braking point, rather than crawling through an entire sector.
  for(const distance of[0,8,18,32,48]){const a=kartAt(road.s+distance),b=kartAt(road.s+distance+8),curvature=Math.max(.001,Math.abs(wrap(b.yaw-a.yaw))/8);target=Math.min(target,Math.sqrt(cfg.corner/curvature+2*23*Math.max(0,distance-5)));}
  if(e.mode==='free')target*=.65;
@@ -1297,21 +1301,21 @@ kartAI=function(c,dt){
   const useful=kartPowerUseful(c);
   if(useful){fireKartPower(c);c.aiPower=3+(1-cfg.aggression)*6;}
  }
- return{gas:c.speed<target+.4,brake:c.speed>target+1.3,steer:clamp(diff*cfg.reaction,-1,1),drift:cfg.aggression>.5&&Math.abs(bend)>.18&&Math.abs(diff)>.12&&Math.abs(diff)<.48&&c.speed>18&&c.air===0&&c.drift<1.7};
+ return{gas:c.speed<target+.4,brake:c.speed>target+1.3,steer:clamp(diff*cfg.reaction,-1,1),drift:c.air>0?(c.air<.25&&cfg.aggression>.5):(cfg.aggression>.5&&Math.abs(bend)>.18&&Math.abs(diff)>.12&&Math.abs(diff)<.48&&c.speed>18&&c.drift<1.7)};
 };
 stepKartCar=function(c,u,dt){
  if(c.finishTime)return;
  const e=experience,road=nearestKart(c.x,c.z),oldS=road.s,oldGround=kartElevation(oldS),grounded=c.air===0;
  for(const key of['slow','inv','spin','boost','padCooldown','jumpCooldown'])c[key]=Math.max(0,(c[key]||0)-dt);
- const off=road.distance>kartTrack.half,lim=c.slow>0?10:off?17:c.boost>0?46:36;
+ const off=road.distance>kartTrack.half,lim=c.slow>0?10:off?17:c.boost>0?54:42+(c.notes||0)*.25;
  const effective=c.spin>0?{gas:false,brake:false,steer:0,drift:false}:u;
  // Slipstream has to be earned by staying directly behind another kart.
  const slip=c.speed>12&&e.cars.some(o=>o!==c&&!o.finishTime&&Math.abs(wrap(o.yaw-c.yaw))<.5&&Math.abs(o.y-c.y)<2&&Math.hypot(o.x-c.x,o.z-c.z)>3&&Math.hypot(o.x-c.x,o.z-c.z)<17&&Math.abs(wrap(Math.atan2(o.x-c.x,o.z-c.z)-c.yaw))<.14);
  c.draft=clamp(c.draft+(slip?dt:-dt*2),0,2);
  if(c.draft>=2){c.boost=Math.max(c.boost,1.1);c.draft=0;c.boosts++;if(c.index===0)kartMessage('REBUFO · ¡ADELANTA!',1.2);}
- if(effective.gas)c.speed+=dt*(c.boost>0?23:15);else if(!effective.brake)c.speed*=Math.exp(-dt*(off?1.6:.48));
+ if(effective.gas)c.speed+=dt*(c.boost>0?28:18);else if(!effective.brake)c.speed*=Math.exp(-dt*(off?1.6:.48));
  if(effective.brake){if(c.speed>1)c.speed=Math.max(0,c.speed-30*dt);else c.speed=Math.max(-7,c.speed-10*dt);}
- if(c.speed>lim)c.speed=Math.max(lim,c.speed-22*dt);c.speed=clamp(c.speed,-7,48);
+ if(c.speed>lim)c.speed=Math.max(lim,c.speed-26*dt);c.speed=clamp(c.speed,-7,56);
  c.steer=lerp(c.steer,effective.steer,1-Math.exp(-dt*11));
  const drifting=grounded&&effective.drift&&c.speed>12&&Math.abs(effective.steer)>.12&&c.slow<=0;
  if(drifting&&!c.drifting){c.driftSide=Math.sign(effective.steer);c.drift=0;}
@@ -1351,6 +1355,71 @@ const originalKartSync=syncKartOptions;
 syncKartOptions=function(){originalKartSync();document.querySelectorAll('[data-kart-difficulty]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.kartDifficulty===kartOptions.difficulty)));$('kart-mode-copy').textContent=kartOptions.mode==='free'?'Explora Costa Brava sin reloj. Practica las rampas, el derrape y las horquillas.':(kartTrack.length/1000).toFixed(2)+' km por vuelta · 3 saltos · 6 sectores · 4 rivales. Frena antes de la curva, carga el derrape y busca el rebufo.';};
 drawKartMap=function(){const e=experience,c=$('kart-map').getContext('2d'),pts=kartTrack.points;const xs=pts.map(p=>p.x),zs=pts.map(p=>p.z),minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs),k=Math.min(146/(maxX-minX),124/(maxZ-minZ));c.clearRect(0,0,180,170);c.save();c.translate(90-(minX+maxX)/2*k,77-(minZ+maxZ)/2*k);c.strokeStyle='#c6d9d0';c.lineWidth=4;c.beginPath();pts.forEach((p,i)=>i?c.lineTo(p.x*k,p.z*k):c.moveTo(p.x*k,p.z*k));c.closePath();c.stroke();for(const f of kartJumps){const p=kartAt(f*kartTrack.length);c.fillStyle='#ffad69';c.fillRect(p.x*k-3,p.z*k-3,6,6);}for(const p of [...e.cars].reverse()){c.fillStyle=p.index===0?'#eeff9c':fighterColor(p.character);c.beginPath();c.arc(p.x*k,p.z*k,p.index===0?4:2.6,0,TAU);c.fill();}c.restore();c.fillStyle='#d5e7d5';c.font='8px monospace';c.textAlign='center';c.fillText('COSTA BRAVA · '+(kartTrack.length/1000).toFixed(2)+' KM',90,158);};
 document.querySelectorAll('[data-kart-difficulty]').forEach(b=>b.onclick=()=>{kartOptions.difficulty=b.dataset.kartDifficulty;syncKartOptions();});
+
+// Festival edition: visible rewards, readable hazards and comeback tools.
+Object.assign(kartPowerNames,{nitro:'DOBLE BIS',shield:'BURBUJA DE SONIDO'});
+Object.assign(kartPowerIcons,{nitro:'»',shield:'◉'});
+const kartHazards=[.13,.26,.35,.57,.64,.72,.88].map((f,i)=>({get s(){return f*kartTrack.length;},moving:i%3===1,side:i%2?3.7:-3.7,phase:i*1.7}));
+function kartHazardAt(h,time){return kartAt(h.s,h.moving?Math.sin(time*.85+h.phase)*4.6:h.side);}
+function kartObstacleLane(c,road){
+ for(const h of kartHazards){const ds=kartWrap(h.s-road.s);if(ds>3&&ds<30){const time=experience.elapsed+ds/Math.max(12,c.speed),side=h.moving?Math.sin(time*.85+h.phase)*4.6:h.side;
+  return side>0?-4.3:4.3;}}
+ return null;
+}
+function kartFestivalState(e){if(e.notes)return;e.notes=[];
+ for(let i=0;i<18;i++)for(let j=0;j<3;j++){const s=(.025+i*.053)*kartTrack.length+j*4,p=kartAt(s,(i%3-1)*3.5);e.notes.push({...p,cool:0});}
+}
+function kartChoosePower(c){const rank=kartRanking().findIndex(o=>o===c),r=Math.random();
+ if(rank>=3)return r<.5?'nitro':r<.72?'shield':'feedback';
+ if(rank===0)return r<.45?'disc':r<.75?'shield':'wave';
+ return ['feedback','disc','wave','nitro','shield'][Math.floor(r*5)];
+}
+const festivalFire=fireKartPower;
+fireKartPower=function(c=experience?.cars?.[0]){const e=experience;if(e?.id!=='kart'||e.status!=='playing'||e.countdown>0||!c?.power)return;
+ if(c.power!=='nitro'&&c.power!=='shield')return festivalFire(c);
+ if(c.power==='nitro'){c.boost=Math.max(c.boost,3.2);c.boosts++;}else c.shield=6;
+ if(c.index===0)kartMessage(kartPowerNames[c.power]+' · ¡DALE!',1.5);c.power=null;expAudio.fx('special');updateKartHUD();
+};
+const festivalHit=hitKart;
+hitKart=function(c,owner){if(c.shield>0){c.shield=0;c.inv=Math.max(c.inv,.8);if(c.index===0)kartMessage('BURBUJA · GOLPE BLOQUEADO',1.2);return false;}const hit=festivalHit(c,owner);if(hit)c.notes=Math.max(0,(c.notes||0)-3);return hit;};
+const festivalCar=stepKartCar;
+stepKartCar=function(c,u,dt){
+ if(c.finishTime)return;const e=experience;kartFestivalState(e);c.notes=c.notes||0;c.shield=Math.max(0,(c.shield||0)-dt);c.hazardCool=Math.max(0,(c.hazardCool||0)-dt);
+ const wasAir=c.air>0,oldJumps=c.jumps;
+ if(wasAir&&c.air<.4&&u.drift&&!c.lastDrift){c.trick=true;if(c.index===0)kartMessage('¡PIRUETA! · ALINEA EL ATERRIZAJE',1);}
+ festivalCar(c,u,dt);c.lastDrift=u.drift;
+ if(c.jumps>oldJumps)c.trick=false;
+ if(wasAir&&c.air===0&&c.trick){if(Math.abs(wrap(c.yaw-nearestKart(c.x,c.z).yaw))<.5){c.boost=Math.max(c.boost,1.5);c.boosts++;c.tricks=(c.tricks||0)+1;if(c.index===0)kartMessage('PIRUETA PERFECTA · TURBO',1.2);}c.trick=false;}
+ for(const n of e.notes){if(n.cool>0||Math.abs(c.y-n.y)>1.8||Math.hypot(c.x-n.x,c.z-n.z)>2)continue;n.cool=7;c.notes=Math.min(10,c.notes+1);if(c.index===0)expAudio.fx('ring');}
+ if(c.hazardCool===0&&c.air===0)for(const h of kartHazards){const p=kartHazardAt(h,e.elapsed);if(Math.hypot(c.x-p.x,c.z-p.z)<2.1&&Math.abs(c.y-p.y)<1.5){c.hazardCool=1.5;if(c.shield>0)c.shield=0;else{c.speed*=.65;c.notes=Math.max(0,c.notes-2);}if(c.index===0)kartMessage('¡CUIDADO CON LA CARGA!',1);break;}}
+};
+const festivalStep=stepKart;
+stepKart=function(dt){const e=experience;if(e?.id!=='kart')return;kartFestivalState(e);
+ if(e.status==='playing'&&e.countdown>0){const gas=kartPlayerControls().gas;if(gas&&!e.rocketHeld)e.rocketAt=e.countdown;e.rocketHeld=gas;const before=e.countdown;festivalStep(dt);
+  if(before>0&&e.countdown===0){for(const c of e.cars){const good=c.index===0?(gas&&e.rocketAt>=1.2&&e.rocketAt<=2.2):kartDifficulty[kartOptions.difficulty].aggression>.5;if(good){c.boost=1.6;c.boosts++;}else if(c.index===0&&gas&&e.rocketAt>2.2){c.slow=.8;kartMessage('MUY PRONTO · MOTOR AHOGADO',1.5);}}}return;}
+ if(e.status==='playing')for(const n of e.notes)n.cool=Math.max(0,n.cool-dt);festivalStep(dt);
+};
+const festivalHUD=updateKartHUD;
+updateKartHUD=function(){festivalHUD();const p=experience?.cars?.[0];if(!p)return;$('kart-best').textContent+=' · ♪ '+(p.notes||0)+'/10';if(p.shield>0)$('kart-drift-label').textContent='BURBUJA · '+p.shield.toFixed(1)+' S';};
+const festivalSync=syncKartOptions;
+syncKartOptions=function(){festivalSync();$('kart-mode-copy').textContent+=' ♪ Notas = más velocidad. Esquiva la carga. Acelera en el 2 para salir con turbo; toca DERRAPE al saltar para hacer una pirueta.';};
+function kartBuildFestival(scene,road,add){
+ const colors=[[.22,.65,.72],[.74,.54,.37],[.95,.74,.32],[.25,.51,.35],[.50,.31,.66],[.91,.38,.50]];
+ for(let sector=0;sector<6;sector++)for(let j=0;j<9;j++){const a=kartAt((sector/6+.012+j*.014)*kartTrack.length),side=j%2?1:-1,x=a.x+a.dz*side*15,z=a.z-a.dx*side*15,col=colors[sector];
+  if(sector===0){add(scene,box(5,3.5,8,col),x,a.y+1.75,z,0,a.yaw);add(scene,box(5.2,.25,8.2,[.88,.88,.69]),x,a.y+3.6,z,0,a.yaw);}
+  else if(sector===1){add(scene,sphere(1,7,5,[.42,.48,.46]),x,a.y+3,z,0,0,0,4,5+j%4,4);}
+  else if(sector===2&&j===4){add(scene,cylinder(3,4,18,12,[.88,.85,.70]),x,a.y+9,z);add(scene,cylinder(4,4,3,12,col),x,a.y+19,z);add(scene,sphere(2,8,5,[1,.87,.4]),x,a.y+21,z);}
+  else if(sector===3){for(const s of[-1,1]){add(scene,cylinder(.4,.7,10,7,[.32,.26,.21]),a.x+a.dz*s*13,a.y+5,a.z-a.dx*s*13);add(scene,sphere(4,8,5,col),a.x+a.dz*s*13,a.y+11,a.z-a.dx*s*13,0,0,0,1,1.4,1);}if(j%2===0)add(scene,box(27,.5,1.2,[.49,.62,.37]),a.x,a.y+10,a.z,0,a.yaw);}
+  else {add(scene,box(5,3,4,[.18,.25,.30]),x,a.y+1.5,z,0,a.yaw);add(scene,box(6,.35,5,col),x,a.y+4,z,0,a.yaw);add(scene,box(.15,8,.15,[.88,.88,.72]),x,a.y+4,z);add(scene,box(3,1.5,.1,col),x+1,a.y+7,z,0,a.yaw);}
+ }
+ for(const h of kartHazards){const p=kartAt(h.s);for(const side of[-1,1])add(scene,box(.2,3,.2,[1,.65,.24]),p.x+p.dz*side*7.5,p.y+1.5,p.z-p.dx*side*7.5);}
+}
+const festivalRender=renderKart;
+renderKart=function(dt){festivalRender(dt);const e=experience;if(e?.id!=='kart')return;kartFestivalState(e);const setup=e.status==='setup',p=setup?makeKart(kartOptions.character,0):e.cars[0],t=setup?e.preview:e.elapsed;
+ for(const n of e.notes){if(n.cool>0||Math.hypot(n.x-p.x,n.z-p.z)>105)continue;R.draw(meshes.note,M.model(n.x,n.y+1.2+Math.sin(t*3+n.s)*.15,n.z,0,t*1.8,0,.65),[1,.86,.32],1);}
+ for(const h of kartHazards){const q=kartHazardAt(h,t);if(Math.hypot(q.x-p.x,q.z-p.z)>110)continue;R.draw(meshes.cube,M.model(q.x,q.y+.8,q.z,0,q.yaw,0,2.2,1.6,2.2),h.moving?[.91,.32,.25]:[.75,.49,.22]);R.draw(meshes.cube,M.model(q.x,q.y+1.65,q.z,0,q.yaw,0,2.3,.15,2.3),[1,.82,.32]);}
+ if(!setup)for(const c of e.cars)if(c.shield>0)R.draw(meshes.halo,M.model(c.x,c.y+1.2,c.z,Math.PI/2,t*2,0,2.1),[.35,.86,1],1);
+};
 
 $('kart-reset').onclick=resetKartPosition;
 buildKartTrack();
