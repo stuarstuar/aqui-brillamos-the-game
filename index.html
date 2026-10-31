@@ -1195,7 +1195,7 @@ function hitKart(c,owner){if(c.inv>0||c.finishTime)return false;c.slow=2.1;c.spi
 function fireKartPower(c=experience?.cars?.[0]){const e=experience;if(e?.id!=='kart'||e.status!=='playing'||e.countdown>0||!c?.power)return;const kind=c.power;c.power=null;expAudio.fx('special');
  if(kind==='feedback'){const sx=Math.sin(c.yaw),sz=Math.cos(c.yaw),candidates=e.cars.filter(o=>o!==c&&!o.finishTime&&Math.hypot(o.x-c.x,o.z-c.z)<55&&(o.x-c.x)*sx+(o.z-c.z)*sz>1).sort((a,b)=>Math.hypot(a.x-c.x,a.z-c.z)-Math.hypot(b.x-c.x,b.z-c.z));e.shots.push({x:c.x+sx*2,z:c.z+sz*2,vx:sx*37,vz:sz*37,owner:c.index,target:candidates[0]?.index??null,life:2.8});}
  if(kind==='disc')e.traps.push({x:c.x-Math.sin(c.yaw)*2.3,z:c.z-Math.cos(c.yaw)*2.3,owner:c.index,life:17,age:0});
- if(kind==='wave'){e.waves.push({x:c.x,z:c.z,r:1,life:.7});for(const o of e.cars)if(o!==c&&Math.hypot(o.x-c.x,o.z-c.z)<17)hitKart(o,c.index);}
+ if(kind==='wave'){e.waves.push({x:c.x,z:c.z,r:1,life:.7});for(const o of e.cars)if(o!==c&&Math.abs(o.y-c.y)<2&&Math.hypot(o.x-c.x,o.z-c.z)<17)hitKart(o,c.index);}
  if(c.index===0)kartMessage(kartPowerNames[kind]+' · ¡que pierdan el ritmo!',1.3);updateKartHUD();}
 function stepKartPowers(dt){const e=experience;for(const b of e.boxes){b.cool=Math.max(0,b.cool-dt);if(b.cool>0)continue;for(const c of e.cars){if(c.power||c.finishTime||Math.abs(c.y-b.y)>2||Math.hypot(c.x-b.x,c.z-b.z)>2.5)continue;c.power=['feedback','disc','wave'][Math.floor(Math.random()*3)];b.cool=5.5;if(c.index===0){expAudio.fx('ring');kartMessage(kartPowerNames[c.power]+' · '+(touchDevice?'toca PODER':'pulsa E para lanzar'),1.8);}break;}}
  for(const s of e.shots){s.life-=dt;if(s.target!==null){const c=e.cars[s.target],dx=c.x-s.x,dz=c.z-s.z,len=Math.hypot(dx,dz)||1;s.vx=lerp(s.vx,dx/len*37,dt*4);s.vz=lerp(s.vz,dz/len*37,dt*4);}s.x+=s.vx*dt;s.z+=s.vz*dt;for(const c of e.cars)if(c.index!==s.owner&&Math.abs(c.y-kartElevation(nearestKart(s.x,s.z).s))<2&&Math.hypot(c.x-s.x,c.z-s.z)<1.65){hitKart(c,s.owner);s.life=0;break;}}
@@ -1244,10 +1244,10 @@ window.addEventListener('keyup',e=>{if(activeMode!=='kart')return;kartInput.keys
 // Costa Brava: shared physics for the player and all opponents.
 const kartDifficulty = {
  chill: {name:'CHILL', pace:25, corner:7.5, reaction:1.05, aggression:.3},
- normal:{name:'NORMAL',pace:30, corner:9.5, reaction:1.45, aggression:.65},
- brutal:{name:'BRÍGIDO',pace:34, corner:12, reaction:1.8, aggression:1}
+ normal:{name:'NORMAL',pace:36, corner:14, reaction:1.8, aggression:.65},
+ brutal:{name:'BRÍGIDO',pace:36, corner:20, reaction:2.1, aggression:1}
 };
-kartOptions.difficulty='normal';
+kartOptions.difficulty='brutal';
 const kartSectors=['PASEO DEL PUERTO','ACANTILADOS','CURVAS DEL FARO','BOSQUE DEL ECO','HORQUILLA DEL RUIDO','RECTA DEL FESTIVAL'];
 const kartPads=[.07,.29,.55,.86];
 const kartJumps=[.18,.46,.78];
@@ -1263,39 +1263,50 @@ const originalKartAt=kartAt;
 kartAt=function(s,offset=0){const p=originalKartAt(s,offset);p.y=kartElevation(s);return p;};
 const originalMakeKart=makeKart;
 makeKart=function(character,index){const c=originalMakeKart(character,index);return Object.assign(c,{y:kartElevation(c.progress),vy:0,air:0,airTotal:0,jumps:0,draft:0,padCooldown:0,stuck:0,aiLane:(index%2?1:-1)*1.8,aiDecision:0,boosts:0,sector:-1});};
+function kartPowerUseful(c){
+ const rivals=experience.cars.filter(o=>o!==c&&!o.finishTime&&o.inv<=0&&Math.abs(o.y-c.y)<2);
+ return rivals.some(o=>{const dx=o.x-c.x,dz=o.z-c.z,front=dx*Math.sin(c.yaw)+dz*Math.cos(c.yaw),d=Math.hypot(dx,dz);
+  return c.power==='wave'?d<15:c.power==='disc'?front<-2&&front>-20&&d<23:front>2&&d<52;});
+}
 kartAI=function(c,dt){
  const road=nearestKart(c.x,c.z),cfg=kartDifficulty[kartOptions.difficulty],e=experience;
  c.aiDecision-=dt;
  if(c.aiDecision<=0){
   c.aiDecision=.25+(1-cfg.aggression)*.55;
   // Score three racing lanes, avoid slower traffic and seek available items.
+  const traffic=e.cars.filter(o=>o!==c&&!o.finishTime).map(o=>({car:o,road:nearestKart(o.x,o.z)}));
+  const pickups=c.power?[]:e.boxes.filter(b=>b.cool<=0&&kartWrap(b.s-road.s)<35).map(b=>({s:b.s,side:b.side??(b.side=nearestKart(b.x,b.z).side)}));
   const lanes=[-3.2,0,3.2];let best=Infinity;
   for(const lane of lanes){let cost=Math.abs(lane-c.aiLane)*.12;
-   for(const other of e.cars){if(other===c)continue;const n=nearestKart(other.x,other.z),ds=kartWrap(n.s-road.s);if(ds<25&&Math.abs(n.side-lane)<2.4)cost+=(25-ds)*(.5+Math.max(0,c.speed-other.speed)*.15);}
-   if(!c.power)for(const b of e.boxes){const ds=kartWrap(b.s-road.s);if(b.cool<=0&&ds<35)cost-=Math.max(0,4-Math.abs(nearestKart(b.x,b.z).side-lane));}
+   for(const {car:other,road:n} of traffic){const ds=kartWrap(n.s-road.s);if(ds<25&&Math.abs(n.side-lane)<2.4)cost+=(25-ds)*(.5+Math.max(0,c.speed-other.speed)*.15);}
+   for(const b of pickups)cost-=Math.max(0,4-Math.abs(b.side-lane));
    if(cost<best){best=cost;c.aiLane=lane;}
   }
  }
- const look=7+Math.abs(c.speed)*.38,ahead=kartAt(road.s+look,c.aiLane),diff=wrap(Math.atan2(ahead.x-c.x,ahead.z-c.z)-c.yaw);
- let curvature=.001;
- for(const distance of[8,18,32,48]){const a=kartAt(road.s+distance),b=kartAt(road.s+distance+8);curvature=Math.max(curvature,Math.abs(wrap(b.yaw-a.yaw))/8);}
- let target=Math.min(cfg.pace+(c.character-2)*.35,Math.sqrt(cfg.corner/curvature));
+ const bend=wrap(kartAt(road.s+24).yaw-road.yaw);
+ // Aim toward the inside of a bend, leaving room for traffic avoidance.
+ const lane=clamp(c.aiLane*.5-Math.sign(bend)*Math.min(1.5,Math.abs(bend)*3),-3.5,3.5);
+ const look=7+Math.abs(c.speed)*.32,ahead=kartAt(road.s+look,lane),diff=wrap(Math.atan2(ahead.x-c.x,ahead.z-c.z)-c.yaw);
+ let target=c.boost>0?46:cfg.pace;
+ // Brake at the braking point, rather than crawling through an entire sector.
+ for(const distance of[0,8,18,32,48]){const a=kartAt(road.s+distance),b=kartAt(road.s+distance+8),curvature=Math.max(.001,Math.abs(wrap(b.yaw-a.yaw))/8);target=Math.min(target,Math.sqrt(cfg.corner/curvature+2*23*Math.max(0,distance-5)));}
  if(e.mode==='free')target*=.65;
  if(Math.abs(diff)>.7)target=Math.min(target,15);
  c.aiPower-=dt;
  if(c.power&&c.aiPower<=0&&e.mode==='race'){
-  const useful=e.cars.some(o=>o!==c&&Math.hypot(o.x-c.x,o.z-c.z)<(c.power==='wave'?16:45));
+  const useful=kartPowerUseful(c);
   if(useful){fireKartPower(c);c.aiPower=3+(1-cfg.aggression)*6;}
  }
- return{gas:c.speed<target+.4,brake:c.speed>target+1.3,steer:clamp(diff*cfg.reaction,-1,1),drift:cfg.aggression>.5&&Math.abs(diff)>.23&&Math.abs(diff)<.65&&c.speed>16&&c.air===0};
+ return{gas:c.speed<target+.4,brake:c.speed>target+1.3,steer:clamp(diff*cfg.reaction,-1,1),drift:cfg.aggression>.5&&Math.abs(bend)>.18&&Math.abs(diff)>.12&&Math.abs(diff)<.48&&c.speed>18&&c.air===0&&c.drift<1.7};
 };
 stepKartCar=function(c,u,dt){
+ if(c.finishTime)return;
  const e=experience,road=nearestKart(c.x,c.z),oldS=road.s,oldGround=kartElevation(oldS),grounded=c.air===0;
- for(const key of['slow','inv','spin','boost','padCooldown'])c[key]=Math.max(0,(c[key]||0)-dt);
- const off=road.distance>kartTrack.half,lim=c.slow>0?10:c.boost>0?46:off?17:36;
+ for(const key of['slow','inv','spin','boost','padCooldown','jumpCooldown'])c[key]=Math.max(0,(c[key]||0)-dt);
+ const off=road.distance>kartTrack.half,lim=c.slow>0?10:off?17:c.boost>0?46:36;
  const effective=c.spin>0?{gas:false,brake:false,steer:0,drift:false}:u;
  // Slipstream has to be earned by staying directly behind another kart.
- const slip=e.cars.some(o=>o!==c&&Math.abs(o.y-c.y)<2&&Math.hypot(o.x-c.x,o.z-c.z)>3&&Math.hypot(o.x-c.x,o.z-c.z)<17&&Math.abs(wrap(Math.atan2(o.x-c.x,o.z-c.z)-c.yaw))<.14);
+ const slip=c.speed>12&&e.cars.some(o=>o!==c&&!o.finishTime&&Math.abs(wrap(o.yaw-c.yaw))<.5&&Math.abs(o.y-c.y)<2&&Math.hypot(o.x-c.x,o.z-c.z)>3&&Math.hypot(o.x-c.x,o.z-c.z)<17&&Math.abs(wrap(Math.atan2(o.x-c.x,o.z-c.z)-c.yaw))<.14);
  c.draft=clamp(c.draft+(slip?dt:-dt*2),0,2);
  if(c.draft>=2){c.boost=Math.max(c.boost,1.1);c.draft=0;c.boosts++;if(c.index===0)kartMessage('REBUFO · ¡ADELANTA!',1.2);}
  if(effective.gas)c.speed+=dt*(c.boost>0?23:15);else if(!effective.brake)c.speed*=Math.exp(-dt*(off?1.6:.48));
@@ -1312,15 +1323,16 @@ stepKartCar=function(c,u,dt){
  // Continuous guard rails prevent cutting across the island. They cost speed.
  if(fresh.distance>kartTrack.half+1.5){const side=Math.sign(fresh.side)||1;c.x=fresh.x+fresh.dz*side*(kartTrack.half+1.45);c.z=fresh.z-fresh.dx*side*(kartTrack.half+1.45);const out=c.vx*fresh.dz-c.vz*fresh.dx;if(out*side>0){c.vx-=fresh.dz*out*1.4;c.vz+=fresh.dx*out*1.4;c.speed*=Math.exp(-dt*3);}fresh=nearestKart(c.x,c.z);}
  const rise=(ground-oldGround)/dt;
- if(grounded&&c.vy>3&&rise<c.vy-2&&forward>15){c.air=.001;c.jumps++;}
+ const atCrest=kartJumps.some(f=>Math.abs(wrap((fresh.s/kartTrack.length-f)*TAU))*kartTrack.length/TAU<4);
+ if(grounded&&c.jumpCooldown===0&&atCrest&&c.vy>3&&rise<c.vy-2&&forward>15){c.air=.001;c.jumps++;c.jumpCooldown=2;}
  if(c.air>0){c.air+=dt;c.airTotal+=dt;c.vy-=19*dt;c.y+=c.vy*dt;if(c.y<=ground){const flight=c.air;c.y=ground;c.vy=0;c.air=0;if(flight>.4&&Math.abs(wrap(c.yaw-fresh.yaw))<.35){c.boost=Math.max(c.boost,.8);if(c.index===0)kartMessage('ATERRIZAJE LIMPIO · TURBO',1.2);}}}
  else{c.y=ground;c.vy=rise;}
  if(c.padCooldown===0&&grounded&&Math.abs(fresh.side)<3&&kartPads.some(f=>Math.abs(kartWrap(fresh.s-f*kartTrack.length+8)-8)<3)){c.boost=Math.max(c.boost,1.6);c.padCooldown=2;c.boosts++;}
  c.wrong=forward<-4?c.wrong+dt:Math.max(0,c.wrong-dt*2);
  c.stuck=Math.abs(c.speed)<3?c.stuck+dt:0;
- if(c.index>0&&c.stuck>3){const p=kartAt((c.nextGate+kartTrack.gates-1)%kartTrack.gates*kartTrack.length/kartTrack.gates+2);Object.assign(c,{x:p.x,z:p.z,y:p.y,yaw:p.yaw,speed:0,vx:0,vz:0,air:0,vy:0,stuck:0});}
+ if(c.index>0&&c.stuck>3){const p=kartAt((c.nextGate+kartTrack.gates-1)%kartTrack.gates*kartTrack.length/kartTrack.gates+2);Object.assign(c,{x:p.x,z:p.z,y:p.y,yaw:p.yaw,speed:0,vx:0,vz:0,air:0,vy:0,stuck:0,checkS:p.s});return;}
  c.trail-=dt;if(c.trail<=0&&grounded&&(c.drifting||c.boost>0)){c.trail=.09;for(const side of[-1,1]){const x=c.x-Math.sin(c.yaw)*1.2+Math.cos(c.yaw)*side*.9,z=c.z-Math.cos(c.yaw)*1.2-Math.sin(c.yaw)*side*.9;e.sparks.push({x,z,y:c.y+.4,vx:0,vz:0,vy:2,life:.4,col:c.boost>0?[1,.7,.25]:[.4,.85,1]});}}
- if(e.mode==='race'&&!c.finishTime){const gateS=c.nextGate*kartTrack.length/kartTrack.gates;const advance=kartWrap(fresh.s-oldS);const toGate=kartWrap(gateS-oldS);
+ if(e.mode==='race'&&!c.finishTime){const gateS=c.nextGate*kartTrack.length/kartTrack.gates,from=c.checkS??oldS;const advance=kartWrap(fresh.s-from);const toGate=kartWrap(gateS-from);c.checkS=fresh.s;
   if(forward>1&&advance<10&&toGate<=advance&&fresh.distance<kartTrack.half+2){if(c.nextGate===0){c.completed++;const lap=e.elapsed-c.lapAt;c.lastLap=lap;c.bestLap=c.bestLap?Math.min(c.bestLap,lap):lap;c.lapAt=e.elapsed;if(c.index===0){expAudio.fx('ring');kartMessage(c.completed===2?'ÚLTIMA VUELTA · ¡DALE!':'VUELTA · '+kartTime(lap),2);}if(c.completed>=3){c.finishTime=e.elapsed;e.finished.push(c.index);if(c.index===0){finishKart();return;}}}c.nextGate=(c.nextGate+1)%kartTrack.gates;}
   // Clamp progress to the next checkpoint, so missed gates cannot improve rank.
   const gate=c.nextGate===0?kartTrack.length:c.nextGate*kartTrack.length/kartTrack.gates;
@@ -1328,10 +1340,11 @@ stepKartCar=function(c,u,dt){
  }
 };
 const originalKartReset=resetKartPosition;
-resetKartPosition=function(){originalKartReset();const c=experience?.cars?.[0];if(c){c.y=kartElevation(nearestKart(c.x,c.z).s);c.vy=0;c.air=0;c.draft=0;}};
+resetKartPosition=function(){originalKartReset();const c=experience?.cars?.[0];if(c){c.checkS=nearestKart(c.x,c.z).s;c.y=kartElevation(c.checkS);c.vy=0;c.air=0;c.draft=0;}};
 const originalKartHUD=updateKartHUD;
 updateKartHUD=function(){originalKartHUD();const e=experience;if(!e?.cars)return;const p=e.cars[0],s=nearestKart(p.x,p.z).s;
- $('kart-best').textContent=kartSectors[kartSector(s)]+' · '+kartDifficulty[kartOptions.difficulty].name;
+ const leader=kartRanking()[0],gap=Math.max(0,leader.progress-p.progress);
+ $('kart-best').textContent=kartSectors[kartSector(s)]+' · '+kartDifficulty[kartOptions.difficulty].name+(e.mode==='race'?(leader===p?' · LÍDER':' · A '+Math.round(gap)+' M DEL LÍDER'):'');
  if(p.air>0)$('kart-drift-label').textContent='EN EL AIRE · ALINEA EL ATERRIZAJE';else if(p.draft>.3)$('kart-drift-label').textContent='REBUFO '+Math.round(p.draft/2*100)+'%';
 };
 const originalKartSync=syncKartOptions;
